@@ -153,7 +153,7 @@ export default function TeacherPanel({
         <div className="teacher-search">
           <Search />
           <input
-            placeholder="搜索姓名或 6 位学号"
+            placeholder="搜索姓名或 8 位学号"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             aria-label="搜索学生"
@@ -250,7 +250,7 @@ export default function TeacherPanel({
         <div className="teacher-empty">
           <Users />
           <h3>{query ? '没有匹配的学生' : '还没有学生注册'}</h3>
-          <p>{query ? '换一个姓名或学号试试。' : '把部署地址发给学生，用姓名和 6 位学号注册后即可开始经营。'}</p>
+          <p>{query ? '换一个姓名或学号试试。' : '把部署地址发给学生，用姓名和 8 位学号注册后即可开始经营。'}</p>
         </div>
       )}
 

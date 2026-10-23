@@ -84,11 +84,11 @@ export function normalizeStudentNo(value) {
   return String(value ?? '').trim();
 }
 
-export const STUDENT_NO_PATTERN = /^\d{6}$/;
+export const STUDENT_NO_PATTERN = /^\d{8}$/;
 export const TEACHER_LOGIN = 'jiaowen';
 
 export function validateStudentNo(studentNo) {
-  if (!STUDENT_NO_PATTERN.test(studentNo)) return '学号必须是 6 位纯数字。';
+  if (!STUDENT_NO_PATTERN.test(studentNo)) return '学号必须是 8 位纯数字。';
   return '';
 }
 

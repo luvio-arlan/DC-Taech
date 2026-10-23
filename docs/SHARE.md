@@ -6,7 +6,7 @@
 
 我们开源了 **NEXUS · 算力纪元**，一款可以直接在浏览器里玩的第一人称 3D 经营教学游戏。从 CEO 办公桌签下第一份算力合同，走进机房查看「光、电、存、芯、冷」，再把采购、施工和客户需求连接起来。
 
-- 在线试玩：https://bjtu.echoxai.net/ （务必使用 https://；学生用姓名 + 6 位学号注册；备用 http://120.26.147.100:8080/）
+- 在线试玩：https://bjtu.echoxai.net/ （务必使用 https://；学生用姓名 + 8 位学号注册；备用 http://120.26.147.100:8080/）
 - GitHub：https://github.com/luvio-arlan/DC-Taech
 - 教程与部署：https://github.com/luvio-arlan/DC-Taech/tree/main/docs
 
@@ -18,7 +18,7 @@
 
 NEXUS is an open-source, first-person 3D management game for learning about AI infrastructure. Sign your first compute customer from the CEO's desk, explore networking, power, storage, GPUs and cooling, then balance procurement, construction and customer demand.
 
-Play: https://bjtu.echoxai.net/ (students register with their name and a six-digit ID; backup http://120.26.147.100:8080/)
+Play: https://bjtu.echoxai.net/ (students register with their name and an eight-digit ID; backup http://120.26.147.100:8080/)
 Source: https://github.com/luvio-arlan/DC-Taech
 
 MIT licensed. Current interface: Chinese. Companies and operating parameters are fictional teaching assumptions. This is not an official Nebius product.

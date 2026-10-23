@@ -49,7 +49,7 @@ async function login(base, studentNo, password) {
   return call(base, '/api/auth/login', {method: 'POST', body: {studentNo, password}});
 }
 
-async function register(base, {name = '张三', studentNo = '231001', password = 'secret1'} = {}) {
+async function register(base, {name = '张三', studentNo = '20231001', password = 'secret1'} = {}) {
   return call(base, '/api/auth/register', {method: 'POST', body: {name, studentNo, password}});
 }
 
@@ -96,7 +96,7 @@ test('教师账号 jiaowen / bjtu888 初始化后可登录，学生账号不显�
     assert.equal(me.status, 200);
     assert.equal(me.json.user.mustChangePassword, true);
 
-    const student = await register(base, {name: '李四', studentNo: '231002'});
+    const student = await register(base, {name: '李四', studentNo: '20231002'});
     assert.equal(student.status, 201);
     assert.equal(student.json.user.role, 'student');
 
@@ -106,25 +106,25 @@ test('教师账号 jiaowen / bjtu888 初始化后可登录，学生账号不显�
     const list = await call(base, '/api/teacher/students', {cookie: teacher.cookie});
     assert.equal(list.status, 200);
     assert.equal(list.json.students.length, 1);
-    assert.equal(list.json.students[0].studentNo, '231002');
+    assert.equal(list.json.students[0].studentNo, '20231002');
     assert.equal(list.json.students[0].status, '未开始');
   });
 });
 
-test('学生学号必须是 6 位纯数字，重复学号被拒绝', async () => {
+test('学生学号必须是 8 位纯数字，重复学号被拒绝', async () => {
   await withApp(async ({base}) => {
-    for (const studentNo of ['12345', '1234567', '12a456', 'abcdef', '']) {
+    for (const studentNo of ['1234567', '123456', '123456789', '12a456', 'abcdef', '']) {
       const result = await register(base, {studentNo});
       assert.equal(result.status, 400, `应拒绝学号 ${studentNo || '(空)'}`);
     }
-    const ok = await register(base, {name: '王五', studentNo: '000001'});
+    const ok = await register(base, {name: '王五', studentNo: '00000001'});
     assert.equal(ok.status, 201);
-    assert.equal(ok.json.user.studentNo, '000001');
+    assert.equal(ok.json.user.studentNo, '00000001');
 
-    const duplicate = await register(base, {name: '王五', studentNo: '000001'});
+    const duplicate = await register(base, {name: '王五', studentNo: '00000001'});
     assert.equal(duplicate.status, 409);
 
-    const wrong = await login(base, '000001', 'wrong-password');
+    const wrong = await login(base, '00000001', 'wrong-password');
     assert.equal(wrong.status, 401);
 
     const anonymous = await call(base, '/api/auth/me');
@@ -135,8 +135,8 @@ test('学生学号必须是 6 位纯数字，重复学号被拒绝', async () =>
 test('学生进度保存后计算得分，排行榜隐藏学号中间位，教师可看完整数据并导出 CSV', async () => {
   await withApp(async ({base, app}) => {
     const teacher = await login(base, 'jiaowen', 'bjtu888');
-    const first = await register(base, {name: '张三', studentNo: '231001'});
-    const second = await register(base, {name: '李四', studentNo: '231002'});
+    const first = await register(base, {name: '张三', studentNo: '20231001'});
+    const second = await register(base, {name: '李四', studentNo: '20231002'});
 
     const strong = await call(base, '/api/progress', {
       method: 'PUT',
@@ -172,7 +172,7 @@ test('学生进度保存后计算得分，排行榜隐藏学号中间位，教�
     assert.equal(board.status, 200);
     assert.equal(board.json.rows.length, 2);
     assert.equal(board.json.rows[0].name, '张三');
-    assert.equal(board.json.rows[0].studentNo, '23***1');
+    assert.equal(board.json.rows[0].studentNo, '20*****1');
     assert.equal(board.json.rows[0].isMe, false);
     assert.equal(board.json.rows[1].isMe, true);
     assert.equal(board.json.me.rank, 2);
@@ -184,7 +184,7 @@ test('学生进度保存后计算得分，排行榜隐藏学号中间位，教�
 
     const list = await call(base, '/api/teacher/students', {cookie: teacher.cookie});
     assert.equal(list.status, 200);
-    assert.equal(list.json.students[0].studentNo, '231001');
+    assert.equal(list.json.students[0].studentNo, '20231001');
     assert.equal(list.json.students[0].status, '已达成');
     assert.equal(list.json.stats.completed, 1);
     assert.equal(list.json.stats.submitted, 2);
@@ -195,7 +195,7 @@ test('学生进度保存后计算得分，排行榜隐藏学号中间位，教�
     assert.equal(csv.status, 200);
     assert.deepEqual([...csvBytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
     assert.match(text, /张三/);
-    assert.match(text, /231001/);
+    assert.match(text, /20231001/);
     assert.match(text, /已达成/);
 
     const dbFile = join(app.dataDir, 'nexus.db');
@@ -205,7 +205,7 @@ test('学生进度保存后计算得分，排行榜隐藏学号中间位，教�
 
 test('较差的新成绩不会覆盖历史最佳，云端存档仍保留最新进度', async () => {
   await withApp(async ({base}) => {
-    const student = await register(base, {name: '赵六', studentNo: '231003'});
+    const student = await register(base, {name: '赵六', studentNo: '20231003'});
     const good = await call(base, '/api/progress', {
       method: 'PUT',
       cookie: student.cookie,
@@ -231,7 +231,7 @@ test('较差的新成绩不会覆盖历史最佳，云端存档仍保留最新�
 
 test('密码修改后旧密码失效，当前会话保留，退出登录后会话失效', async () => {
   await withApp(async ({base}) => {
-    const student = await register(base, {name: '钱七', studentNo: '231004', password: 'oldpass'});
+    const student = await register(base, {name: '钱七', studentNo: '20231004', password: 'oldpass'});
     const wrong = await call(base, '/api/auth/password', {
       method: 'POST',
       cookie: student.cookie,
@@ -249,9 +249,9 @@ test('密码修改后旧密码失效，当前会话保留，退出登录后会�
     const stillMe = await call(base, '/api/auth/me', {cookie: student.cookie});
     assert.equal(stillMe.status, 200);
 
-    const oldLogin = await login(base, '231004', 'oldpass');
+    const oldLogin = await login(base, '20231004', 'oldpass');
     assert.equal(oldLogin.status, 401);
-    const newLogin = await login(base, '231004', 'newpass1');
+    const newLogin = await login(base, '20231004', 'newpass1');
     assert.equal(newLogin.status, 200);
 
     const logout = await call(base, '/api/auth/logout', {method: 'POST', cookie: student.cookie});
@@ -264,7 +264,7 @@ test('密码修改后旧密码失效，当前会话保留，退出登录后会�
 test('教师可以重置单个学生进度，学生无权调用教师接口', async () => {
   await withApp(async ({base}) => {
     const teacher = await login(base, 'jiaowen', 'bjtu888');
-    const student = await register(base, {name: '孙八', studentNo: '231005'});
+    const student = await register(base, {name: '孙八', studentNo: '20231005'});
     await call(base, '/api/progress', {
       method: 'PUT',
       cookie: student.cookie,
@@ -297,7 +297,7 @@ test('教师可以重置单个学生进度，学生无权调用教师接口', as
 
 test('跨站写请求被拒绝，非法进度被拒绝', async () => {
   await withApp(async ({base}) => {
-    const student = await register(base, {name: '周九', studentNo: '231006'});
+    const student = await register(base, {name: '周九', studentNo: '20231006'});
     const crossSite = await call(base, '/api/auth/logout', {
       method: 'POST',
       cookie: student.cookie,

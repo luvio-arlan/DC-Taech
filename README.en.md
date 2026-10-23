@@ -14,7 +14,7 @@ NEXUS is an open-source, first-person 3D management game for learning about AI i
 - Inspect optical networking, power, storage, GPUs and liquid cooling.
 - Track equipment lead times, contracts, customer invoices and operating cash flow.
 - Balance all infrastructure constraints: installed GPUs alone are not deliverable compute.
-- Register with your name and a six-digit student ID; progress syncs to the teaching server and survives a browser reset.
+- Register with your name and an eight-digit student ID; progress syncs to the teaching server and survives a browser reset.
 - Teachers get a class dashboard with rankings, student search and CSV export.
 
 ## Controls
@@ -27,7 +27,7 @@ Sign Orion AI first. Complete A2 construction, install at least 1,024 GPUs, serv
 
 | Role | Credentials | Notes |
 | --- | --- | --- |
-| Student | Name + six-digit ID + chosen password | Self-register, then play; progress syncs automatically |
+| Student | Name + eight-digit ID + chosen password | Self-register, then play; progress syncs automatically |
 | Teacher | `jiaowen` / `bjtu888` | Change the password after the first login |
 
 The teacher dashboard shows the class ranking by best score, supports search and CSV export, and can reset an individual student's cloud save. Scores cover revenue, daily operating cash flow, ready GPU capacity, construction progress, cash safety, board objectives and completion speed.

@@ -94,7 +94,7 @@ function LoginScreen({expired, onAuthenticated}: {expired: boolean; onAuthentica
     setError('');
     if (mode === 'register') {
       if (!name.trim()) return setError('请填写真实姓名，教师会据此核对成绩。');
-      if (!/^\d{6}$/.test(studentNo)) return setError('学号必须是 6 位纯数字。');
+      if (!/^\d{8}$/.test(studentNo)) return setError('学号必须是 8 位纯数字。');
       if (password.length < 6) return setError('密码至少 6 位。');
       if (password !== confirm) return setError('两次输入的密码不一致。');
     } else if (!studentNo.trim() || !password) {
@@ -219,18 +219,18 @@ function LoginScreen({expired, onAuthenticated}: {expired: boolean; onAuthentica
                   name="username"
                   autoComplete="username"
                   inputMode={mode === 'register' ? 'numeric' : 'text'}
-                  placeholder={mode === 'register' ? '6 位数字学号' : '学号，或教师账号'}
+                  placeholder={mode === 'register' ? '8 位数字学号' : '学号，或教师账号'}
                   value={studentNo}
-                  maxLength={mode === 'register' ? 6 : 32}
+                  maxLength={mode === 'register' ? 8 : 32}
                   onChange={(event) =>
                     setStudentNo(
                       mode === 'register'
-                        ? event.target.value.replace(/\D/g, '').slice(0, 6)
+                        ? event.target.value.replace(/\D/g, '').slice(0, 8)
                         : event.target.value.replace(/\s/g, ''),
                     )
                   }
                 />
-                {mode === 'register' && <small>{studentNo.length}/6</small>}
+                {mode === 'register' && <small>{studentNo.length}/8</small>}
               </div>
             </label>
 
@@ -292,12 +292,12 @@ function LoginScreen({expired, onAuthenticated}: {expired: boolean; onAuthentica
           <div className="auth-hint">
             {mode === 'login' ? (
               <p>
-                首次使用？切换到 <button onClick={() => switchMode('register')}>注册</button>，用姓名和 6 位学号创建账号。
+                首次使用？切换到 <button onClick={() => switchMode('register')}>注册</button>，用姓名和 8 位学号创建账号。
                 教师账号由教务统一提供。
               </p>
             ) : (
               <p>
-                学号必须是 <b>6 位纯数字</b>，姓名用于教师核对成绩。密码至少 6 位，注册后自动登录。
+                学号必须是 <b>8 位纯数字</b>，姓名用于教师核对成绩。密码至少 6 位，注册后自动登录。
               </p>
             )}
             <small>登录即表示你同意将经营成绩用于本课程的教学统计。</small>
