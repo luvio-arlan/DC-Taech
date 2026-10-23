@@ -15,20 +15,27 @@
 | 数据目录 | `/var/lib/nexus` |
 | 服务名 | `nexus.service` |
 | 进程端口 | `127.0.0.1:8787`（只给 Nginx 访问） |
-| 当前课堂入口 | <http://120.26.147.100:8080/> |
-| 域名状态 | 阿里云 ICP 备案拦截中，备案完成后启用 80/443 |
+| 当前课堂入口 | <https://bjtu.echoxai.net/> |
+| 备用入口 | <http://120.26.147.100:8080/> |
+| HTTPS | 已启用（Let's Encrypt，acme.sh 自动续期） |
+| 域名 80 状态 | 仍被阿里云 ICP 拦截；请始终使用 https:// 链接 |
 
 选择 **systemd + 宿主 Nginx**，不使用 Docker：这台机器没有安装 Docker，也无需为了一个 SQLite 服务引入容器运行时。
 
 ## 当前状态（重要）
 
-`bjtu.echoxai.net` 已经解析到这台 ECS，但访问 80/443 时被阿里云的 **Non-compliance ICP Filing** 页面拦截（443 直接 reset）。实测通过该域名访问 8080 同样被拦截，而直接访问 IP:8080 正常——拦截依据是 Host/SNI，因此换端口无法绕过。这是大陆 ECS 对未备案域名的限制，不是 Nginx 配置问题。同一 IP 上的 `hc.echoxai.net` 目前也受同样限制。
+`bjtu.echoxai.net` 已经解析到这台 ECS。它的 **80 端口仍被阿里云的 Non-compliance ICP Filing 页面拦截**，但 **443 端口配合有效证书可以正常访问**：
 
-因此在域名完成 ICP 备案前，课堂入口使用 **IP + 8080 端口**：
+> **<https://bjtu.echoxai.net/>**
 
-> <http://120.26.147.100:8080/>
+几个容易混淆的点：
 
-IP:8080 已通过安全组验证可公网访问。备案完成后，删除 8080 入口、恢复 80/443 并申请证书即可。HTTP 下密码为明文传输，建议只在本课程/校内范围使用，不要长期公开。
+- 用 `http://bjtu.echoxai.net/` 会看到备案拦截页；用 `https://` 才是本站。
+- 不要在浏览器里只输入裸域名，部分浏览器会先尝试 HTTP，仍然看到拦截页。请分享完整的 `https://bjtu.echoxai.net/` 链接，或让学生直接收藏。
+- 通过域名访问 `:8080` 也会被拦截；只有 **IP:8080** 可用，作为 HTTPS 的备用入口。
+- 80 端口无法由 Nginx 做 301 跳转，因为请求在到达 Nginx 之前就被阿里云拦下了。这是备案层面的限制，不是证书或配置问题。
+
+证书由 `acme.sh` 通过 **TLS-ALPN-01** 签发（HTTP-01 会因为 80 被拦截而失败）。续期时会短暂停止 Nginx、让 acme.sh 占用 443 完成验证，然后自动恢复，通常中断数秒。若希望续期完全不影响现有站点，可改用 DNS-01 验证（需要在阿里云 RAM 中创建 DNS API 凭据）。
 
 ## 首次部署
 
@@ -37,9 +44,9 @@ IP:8080 已通过安全组验证可公网访问。备案完成后，删除 8080 
 在阿里云控制台的 **安全组** 中放行：
 
 - `22/tcp`（SSH，建议只允许自己的出口 IP）
-- `80/tcp`（HTTP，备案完成后使用）
-- `443/tcp`（HTTPS，备案完成后使用）
-- `8080/tcp`（备案完成前的课堂入口）
+- `443/tcp`（HTTPS，课堂主入口）
+- `8080/tcp`（IP 备用入口）
+- `80/tcp`（保留给备案完成后的 HTTP 跳转；当前被 ICP 拦截）
 
 系统防火墙（ufw）当前未启用，无需额外放行。
 
@@ -173,30 +180,37 @@ server {
 
 `Host` 与 `X-Forwarded-Host` 必须使用 `$http_host`（含端口），否则浏览器在 `:8080` 下的 `Origin` 校验会失败，登录时报“请求来源不受信任”。
 
-### 5. HTTPS（ICP 备案完成后）
+### 5. HTTPS（已完成）
 
-> 当前未执行：未备案域名的 443 会被阿里云重置，Let's Encrypt 的 HTTP-01 校验也无法通过 80 端口完成。请先完成备案，再执行本节。
+HTTPS 不依赖 80 端口，即使 HTTP 仍被 ICP 拦截，443 也可以工作。本机使用 `acme.sh` 的 ALPN 模式签发，证书路径：
+
+- `/etc/nginx/ssl/bjtu.echoxai.net.crt`
+- `/etc/nginx/ssl/bjtu.echoxai.net.key`
+
+签发命令（会短暂停止 Nginx，并在完成后自动恢复）：
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y certbot python3-certbot-nginx
-
-sudo certbot --nginx \
+/root/.acme.sh/acme.sh --issue --alpn \
   -d bjtu.echoxai.net \
-  --redirect \
-  --agree-tos \
-  --register-unsafely-without-email \
-  --non-interactive
+  --keylength ec-256 \
+  --pre-hook "systemctl stop nginx" \
+  --post-hook "systemctl start nginx"
+
+/root/.acme.sh/acme.sh --install-cert -d bjtu.echoxai.net --ecc \
+  --key-file /etc/nginx/ssl/bjtu.echoxai.net.key \
+  --fullchain-file /etc/nginx/ssl/bjtu.echoxai.net.crt \
+  --reloadcmd "systemctl reload nginx"
 ```
 
-certbot 会自动写入 443 证书、把 80 重定向到 HTTPS，并安装续期定时器。
+`--pre-hook` / `--post-hook` 会保存在 acme.sh 的续期配置中，cron 任务每日检查并在到期前自动续期。验证：
 
 ```bash
-sudo certbot renew --dry-run
-systemctl list-timers | grep certbot
+/root/.acme.sh/acme.sh --list
+sudo crontab -l | grep acme
+openssl x509 -in /etc/nginx/ssl/bjtu.echoxai.net.crt -noout -subject -dates
 ```
 
-中国大陆服务器绑定域名访问 80/443 通常要求域名已完成 ICP 备案；若备案未完成，可先用 `http://120.26.147.100:8787` 做内网/临时验证，不要把该端口长期暴露在公网。
+如果之后完成 ICP 备案，80 端口恢复，可以继续保留 ALPN 续期，也可以改用 HTTP-01 或 DNS-01；证书本身不影响备案。
 
 ### 6. 验收
 
@@ -205,7 +219,7 @@ curl -s https://bjtu.echoxai.net/api/health
 curl -sI https://bjtu.echoxai.net/ | head
 ```
 
-浏览器打开 <http://120.26.147.100:8080/>（备案完成后改为 `https://bjtu.echoxai.net/`）：
+浏览器打开 **<https://bjtu.echoxai.net/>**（备用：<http://120.26.147.100:8080/>）：
 
 1. 用教师账号 `jiaowen` / `bjtu888` 登录。
 2. 右上角账号菜单 → **修改密码**，立即改掉默认密码。
@@ -224,7 +238,7 @@ sudo journalctl -u nexus -n 100 --no-pager
 sudo systemctl restart nexus
 
 # 备份数据库（一致性快照）
-sudo -u nexus env DATA_DIR=/var/lib/nexus /usr/bin/node /opt/nexus/app/server/backup.mjs
+sudo -u nexus env DATA_DIR=/var/lib/nexus /opt/node-v22.20.0-linux-x64/bin/node /opt/nexus/app/server/backup.mjs
 sudo ls -lh /var/lib/nexus/backup-*.db
 
 # 关闭学生自助注册（开课名单固定后）
@@ -264,7 +278,7 @@ ssh root@120.26.147.100 'rsync -a --delete /tmp/nexus-build/ /opt/nexus/app/ && 
 HTTPS 反向代理没有传 `X-Forwarded-Proto`，导致 Secure Cookie 行为异常。确认 Nginx 配置包含该请求头。
 
 **域名打不开，返回 403 / Non-compliance ICP Filing**
-域名尚未完成 ICP 备案，被阿里云在 80 端口拦截；443 会直接 reset。备案完成前请使用 `http://120.26.147.100:8080/`。
+这是 80 端口的备案拦截。请使用完整 HTTPS 地址 <https://bjtu.echoxai.net/>；如果 HTTPS 也不通，再使用备用 <http://120.26.147.100:8080/>。
 
 **教师后台看不到学生**
 学生需要至少保存过一次进度（推进一天或打开任一经营面板后约 1 秒）才会出现在排行榜；已注册但未开始的学生会以“未开始”出现在教师列表。
