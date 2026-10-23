@@ -1,0 +1,62 @@
+{
+  "format": "真实游戏截图 + 中文配音图解教程",
+  "continuous_recording": false,
+  "repository": "https://github.com/B-M-Capital-Research/nexus-datacenter-ceo",
+  "source_images_directory": "docs/images",
+  "screenshots_modified": false,
+  "videos": [
+    {
+      "file": "nexus-quickstart-zh.mp4",
+      "bytes": 2826498,
+      "duration_seconds": 126.02,
+      "width": 1920,
+      "height": 1080,
+      "video_codec": "H.264",
+      "audio_codec": "AAC",
+      "audio_channels": 2,
+      "fps": 24,
+      "checks": {
+        "1920x1080": true,
+        "H264": true,
+        "AAC": true,
+        "duration_in_tolerance": true,
+        "under_20_MB": true
+      },
+      "full_decode_ok": true
+    },
+    {
+      "file": "nexus-infrastructure-zh.mp4",
+      "bytes": 1883341,
+      "duration_seconds": 78.02,
+      "width": 1920,
+      "height": 1080,
+      "video_codec": "H.264",
+      "audio_codec": "AAC",
+      "audio_channels": 2,
+      "fps": 24,
+      "checks": {
+        "1920x1080": true,
+        "H264": true,
+        "AAC": true,
+        "duration_in_tolerance": true,
+        "under_20_MB": true
+      },
+      "full_decode_ok": true
+    }
+  ],
+  "missing_images": [],
+  "visual_review": {
+    "method": "Extracted video frames inspected with view_image",
+    "frames": [
+      "nexus-quickstart-zh-frame.jpg",
+      "nexus-quickstart-zh-endcard.jpg",
+      "nexus-infrastructure-zh-frame.jpg",
+      "nexus-infrastructure-zh-endcard.jpg"
+    ],
+    "title_complete": true,
+    "chinese_subtitles_not_clipped": true,
+    "original_day_labels_visible": true,
+    "endcard_repository_url_complete": true,
+    "required_disclosures_visible": true
+  }
+}

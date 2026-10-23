@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    image: nexus-ceo-teaching:latest
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /app/data
+      PORT: 8787
+      HOST: 0.0.0.0
+      TRUST_PROXY: 1
+      # 首次启动创建教师账号时使用；数据库已存在时不会覆盖已修改的密码。
+      TEACHER_PASSWORD: ${TEACHER_PASSWORD:-bjtu888}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-1}
+    volumes:
+      - nexus-data:/app/data
+    expose:
+      - "8787"
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  nexus-data:
