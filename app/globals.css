@@ -354,3 +354,9 @@ i.seg-contract{background:#7d8f78}i.seg-forecast{background:#b4a2ff}i.seg-safety
  .auth-copy .eyebrow{font-size:9px}
  .ranking-score-main>b{font-size:38px}
 }
+/* 高斯过程参数 */
+.fc-gp-kernel{flex:1 1 230px;min-width:210px;max-width:320px}
+.fc-gp-kernel .fc-seg{width:100%;height:40px}
+.fc-gp-kernel .fc-seg button{flex:1;padding:5px 8px;font-size:11px}
+.fc-gp-kernel .fc-seg button em{font-size:9px}
+.fc-gp-hint{flex-basis:100%;margin:2px 0 0;font-size:11px!important;line-height:1.75;color:#7f957b}

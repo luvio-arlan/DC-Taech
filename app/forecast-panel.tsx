@@ -5,14 +5,14 @@ import {ArrowUpRight,Check,Download,Minus,Plus,TriangleAlert} from 'lucide-react
 import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
 import {CATALOG,COSTS,forecastView,money,recommendation} from '@/lib/game';
 import type {Action,Game,ForecastView} from '@/lib/game';
-import {MARKET,METHODS,SERVICE_LEVELS,WEEKDAYS,errorStats,fit,fmt,horizonRmse,methodInfo,normCdf,normInv,normWeights,table,weekday} from '@/lib/forecast';
+import {GP,MARKET,METHODS,SERVICE_LEVELS,WEEKDAYS,errorStats,fit,fmt,intervalZ,methodInfo,normCdf,normInv,normWeights,predictiveSd,table,weekday} from '@/lib/forecast';
 import type {Fit,ForecastSettings} from '@/lib/forecast';
 
 type Dispatch=(a:Action)=>{ok:boolean};
 type Props={game:Game;dispatch:Dispatch};
 const TS_LIMIT=4;
 const C={ink:'#dce4d2',muted:'#93a193',grid:'#b6cb9c18',axis:'#8fa285',actual:'#d5dcb2',fc:'#b4a2ff',fut:'#ffcb6b',warn:'#e5bf77',cool:'#74b4ff',green:'#557856',weekend:'#b6cb9c0c'};
-const PARAM={alpha:{sym:'α',name:'水平平滑'},beta:{sym:'β',name:'趋势平滑'},gamma:{sym:'γ',name:'季节平滑'}} as const;
+const PARAM={alpha:{sym:'α',name:'水平平滑'},beta:{sym:'β',name:'趋势平滑'}} as const;
 const dayLabel=(t:number)=>t<=0?`历史 ${t}`:`第 ${t} 天`;
 const signed=(x:number,dp=1)=>`${x>0?'+':x<0?'−':''}${Math.abs(x).toFixed(dp)}`;
 
@@ -76,7 +76,21 @@ function Params({game,dispatch}:Props){
     <button aria-label="减少一期" disabled={s.weights.length<=2} onClick={()=>set({weights:s.weights.slice(0,-1)})}><Minus size={12}/></button>
     <button aria-label="增加一期" disabled={s.weights.length>=6} onClick={()=>set({weights:[...s.weights,s.weights.at(-1)!/2||.1]})}><Plus size={12}/></button></span></span>
    <div className="fc-weight-grid">{s.weights.map((x,i)=><Slider key={i} label={`w${i+1}`} value={x} min={0} max={1} step={.05} format={()=>w[i].toFixed(2)} onChange={v=>set({weights:s.weights.map((y,j)=>j===i?v:y)})}/>)}</div></div>}
-  {(['alpha','beta','gamma'] as const).filter(p=>info.params.includes(p)).map(p=><Slider key={p} sym={PARAM[p].sym} label={PARAM[p].name} value={s[p]} min={.05} max={1} step={.05} onChange={v=>set({[p]:v})}/>)}
+  {(['alpha','beta'] as const).filter(p=>info.params.includes(p)).map(p=><Slider key={p} sym={PARAM[p].sym} label={PARAM[p].name} value={s[p]} min={.05} max={1} step={.05} onChange={v=>set({[p]:v})}/>)}
+  {info.params.includes('gp')&&<>
+   <div className="fc-slider fc-gp-kernel">
+    <span className="fc-slider-head"><span><i className="fc-sym">k</i> 核函数</span><b>{s.gpKernel==='rbf_periodic'?'RBF + 周期':'RBF'}</b></span>
+    <div className="fc-seg" role="radiogroup" aria-label="GP 核函数">
+     <button role="radio" aria-checked={s.gpKernel==='rbf'} className={s.gpKernel==='rbf'?'on':''} onClick={()=>set({gpKernel:'rbf'})}>RBF<em>平滑相关</em></button>
+     <button role="radio" aria-checked={s.gpKernel==='rbf_periodic'} className={s.gpKernel==='rbf_periodic'?'on':''} onClick={()=>set({gpKernel:'rbf_periodic'})}>RBF + 周期<em>周季节</em></button>
+    </div>
+   </div>
+   <Slider sym="ℓ" label="RBF 长度尺度" value={s.ell} min={.5} max={30} step={.5} format={x=>`${x.toFixed(1)} 天`} onChange={v=>set({ell:v})}/>
+   <Slider sym="σf²" label="RBF 信号方差" value={s.sf2} min={10} max={3000} step={10} format={x=>x.toFixed(0)} onChange={v=>set({sf2:v})}/>
+   {s.gpKernel==='rbf_periodic'&&<Slider sym="σp²" label="周期核方差" value={s.sp2} min={0} max={3000} step={10} format={x=>x.toFixed(0)} onChange={v=>set({sp2:v})}/>}
+   <Slider sym="σn²" label="观测噪声方差" value={s.sn2} min={1} max={500} step={1} format={x=>x.toFixed(0)} onChange={v=>set({sn2:v})}/>
+   <p className="fc-hint fc-gp-hint">均值函数 = 线性趋势 × 星期因子（最近 {GP.meanWindow} 天估计）；GP 对去均值后的残差建模，返回均值与含噪声的预测方差。</p>
+  </>}
  </div>;
 }
 
@@ -154,9 +168,9 @@ function Formula({f,s,v}:{f:Fit;s:ForecastSettings;v:ForecastView}){
   sub=<><V c="F" s={d}/> = {s.alpha} × {D(0)} + {(1-s.alpha).toFixed(2)} × {n1(r.f)} = <b>{n1(out)}</b></>;}
  else if(s.method==='holt'){lines=[<><V c="L" s="t"/> = <var>α</var><V c="D" s="t"/> + (1 − <var>α</var>)(<V c="L" s="t−1"/> + <V c="T" s="t−1"/>)</>,<><V c="T" s="t"/> = <var>β</var>(<V c="L" s="t"/> − <V c="L" s="t−1"/>) + (1 − <var>β</var>)<V c="T" s="t−1"/></>,<><V c="F" s="t+h"/> = <V c="L" s="t"/> + <var>h</var>·<V c="T" s="t"/></>];
   sub=<><V c="L" s={t}/> = {s.alpha} × {D(0)} + {(1-s.alpha).toFixed(2)} × ({n1(prev?.level)} + {n1(prev?.trend,2)}) = {n1(r.level)}<br/><V c="F" s={d}/> = {n1(r.level)} + {n1(r.trend,2)} = <b>{n1(out)}</b></>;}
- else{const S=out!==null&&r.level!==undefined&&r.trend!==undefined?out/(r.level+r.trend):null;
-  lines=[<><V c="L" s="t"/> = <var>α</var>(<V c="D" s="t"/> / <V c="S" s="t−7"/>) + (1 − <var>α</var>)(<V c="L" s="t−1"/> + <V c="T" s="t−1"/>)</>,<><V c="T" s="t"/> = <var>β</var>(<V c="L" s="t"/> − <V c="L" s="t−1"/>) + (1 − <var>β</var>)<V c="T" s="t−1"/></>,<><V c="S" s="t"/> = <var>γ</var>(<V c="D" s="t"/> / <V c="L" s="t"/>) + (1 − <var>γ</var>)<V c="S" s="t−7"/></>,<><V c="F" s="t+h"/> = (<V c="L" s="t"/> + <var>h</var>·<V c="T" s="t"/>) · <V c="S" s="t+h−7"/></>];
-  sub=<><V c="L" s={t}/> = {s.alpha} × ({D(0)} / {n1(r.season,3)}) + {(1-s.alpha).toFixed(2)} × ({n1(prev?.level)} + {n1(prev?.trend,2)}) = {n1(r.level)}<br/><V c="F" s={d}/> = ({n1(r.level)} + {n1(r.trend,2)}) × {n1(S,3)} = <b>{n1(out)}</b></>;}
+ else{const g=f.gp,last=g?.last;
+  lines=[<><var>m</var>(<var>x</var>) = (<var>a</var> + <var>b</var>·<var>x</var>) · <var>S</var><sub>weekday</sub></>,<>f(<var>x</var>) ~ GP(0, <var>k</var>)，<var>k</var> = <var>k</var><sub>RBF</sub>{g?.kernel==='rbf_periodic'?' + k周期':''}</>,<>μ* = <var>m</var>(<var>x</var>*) + <var>k</var>*ᵀ(<var>K</var> + σ<sub>n</sub>²<var>I</var>)⁻¹(<var>y</var> − <var>m</var>)</>,<><var>v</var>* = <var>k</var>** − <var>k</var>*ᵀ(<var>K</var> + σ<sub>n</sub>²<var>I</var>)⁻¹<var>k</var>*</>,<>ŷ* = μ*，Var(ŷ*) = <var>v</var>* + σ<sub>n</sub>²</>];
+  sub=last?<><var>x</var>* = 第 {last.x} 天：<var>m</var>(<var>x</var>*) = {n1(last.m)}，μ* = <b>{n1(last.mean)}</b><br/><var>v</var>* = {n1(last.latentVar,2)}，σ = √(<var>v</var>* + σ<sub>n</sub>²) = <b>{n1(Math.sqrt(last.obsVar))}</b></>:'样本不足，暂用先验均值。';}
  return <div className="fc-formula">
   <div className="fc-math">{lines.map((l,k)=><div key={k}>{l}</div>)}</div>
   <div className="fc-sub"><span className="fc-eyebrow-inline">代入第 {t} 天的数据</span><div className="fc-math small">{sub}</div></div>
@@ -166,9 +180,9 @@ function Formula({f,s,v}:{f:Fit;s:ForecastSettings;v:ForecastView}){
 /* ---------- ① 预测看板 ---------- */
 function Board({game,dispatch}:Props){
  const v=useView(game),all=useAllMethods(game,v),info=methodInfo(game.forecast.method);
- const L=CATALOG.find(x=>x.id==='compute')!.days,z=game.forecast.z;
+ const L=CATALOG.find(x=>x.id==='compute')!.days,z=game.forecast.z,zBand=intervalZ(z);
  const e=all.find(x=>x.m.id===game.forecast.method)!.e;
- const future=useMemo<FuturePoint[]>(()=>Array.from({length:14},(_,k)=>{const h=k+1,f=v.fit.ahead(v.N-1,h),sd=horizonRmse(v.fit,h,v.from)??(horizonRmse(v.fit,1,v.from)??0)*Math.sqrt(h);return {t:game.day+k,f:Math.max(0,f??0),band:z*sd};}),[v,z]);
+ const future=useMemo<FuturePoint[]>(()=>Array.from({length:14},(_,k)=>{const h=k+1,f=v.fit.ahead(v.N-1,h),sd=predictiveSd(v.fit,v.N-1,h,v.from)??(predictiveSd(v.fit,v.N-1,1,v.from)??0)*Math.sqrt(h);return {t:game.day+k,f:Math.max(0,f??0),band:zBand*sd};}),[v,zBand,game.day]);
  const today=future[0],arrival=future[L];
  const tsRows=useMemo(()=>table(v.fit.rows,v.from),[v]);
  const last=game.spotLog.at(-1),fill=last&&last.demand?last.served/last.demand:null;
@@ -203,18 +217,18 @@ function Board({game,dispatch}:Props){
   <Eyebrow right={info.name}>FORMULA</Eyebrow>
   <Formula f={v.fit} s={game.forecast} v={v}/>
   <p className="fc-note"><b>{info.idea}</b> 初始化：{v.fit.init}</p>
-  <p className="fc-note">记号：误差 eₜ = Dₜ − Fₜ，正数表示预测偏低。误差指标统计最近 {MARKET.window} 天。跟踪信号 TS = Σeₜ ÷ MAD，超出 ±{TS_LIMIT} 通常说明需求模式变了，或方法跟不上趋势。预测区间 = 预测值 ± z × 回测得到的 h 步误差均方根，与「订货建议」的安全量同源。</p>
+  <p className="fc-note">记号：误差 eₜ = Dₜ − Fₜ，正数表示预测偏低。误差指标统计最近 {MARKET.window} 天。跟踪信号 TS = Σeₜ ÷ MAD，超出 ±{TS_LIMIT} 通常说明需求模式变了，或方法跟不上趋势。预测区间 = 预测值 ± {zBand.toFixed(2)} × {game.forecast.method==='gp'?'GP 后验预测标准差（含观测噪声 σₙ²）':'回测得到的 h 步误差均方根'}；{zBand.toFixed(2)} 是把当前服务水平换算成同覆盖率双侧区间后的分位数（95% 服务 → 1.96），与「订货建议」的安全量使用同一服务水平。</p>
  </div>;
 }
 
 /* ---------- ② 逐期计算表 ---------- */
 function Steps({game,dispatch}:Props){
  const v=useView(game),all=useAllMethods(game,v),info=methodInfo(game.forecast.method),rows=table(v.fit.rows,v.from);
- const hasL=rows.some(r=>r.level!==undefined),hasT=rows.some(r=>r.trend!==undefined),hasS=rows.some(r=>r.season!==undefined),nState=+hasL+ +hasT+ +hasS;
+ const hasL=rows.some(r=>r.level!==undefined),hasT=rows.some(r=>r.trend!==undefined),hasMean=rows.some(r=>r.mean!==undefined),hasSD=rows.some(r=>r.sd!==undefined),nState=+hasL+ +hasT+ +hasMean+ +hasSD;
  const emax=Math.max(1,...rows.map(r=>Math.abs(r.e??0)));
  const exportCsv=()=>{
-  const head=['运营日','星期','实际需求D','预测F','误差e=D-F','|e|','e^2','APE%',hasL?'水平L':'',hasT?'趋势T':'',hasS?'季节指数S':''].filter(Boolean);
-  const lines=v.fit.rows.map(r=>{const e=r.f===null?null:r.d-r.f;return [r.t,'周'+WEEKDAYS[weekday(r.t)],r.d,r.f===null?'':r.f.toFixed(4),e===null?'':e.toFixed(4),e===null?'':Math.abs(e).toFixed(4),e===null?'':(e*e).toFixed(4),e===null||!r.d?'':(Math.abs(e)/r.d*100).toFixed(4),...(hasL?[r.level?.toFixed(4)??'']:[]),...(hasT?[r.trend?.toFixed(4)??'']:[]),...(hasS?[r.season?.toFixed(4)??'']:[])].join(',');});
+  const head=['运营日','星期','实际需求D','预测F','误差e=D-F','|e|','e^2','APE%',hasL?'水平L':'',hasT?'趋势T':'',hasMean?'结构均值m':'',hasSD?'预测标准差sigma':''].filter(Boolean);
+  const lines=v.fit.rows.map(r=>{const e=r.f===null?null:r.d-r.f;return [r.t,'周'+WEEKDAYS[weekday(r.t)],r.d,r.f===null?'':r.f.toFixed(4),e===null?'':e.toFixed(4),e===null?'':Math.abs(e).toFixed(4),e===null?'':(e*e).toFixed(4),e===null||!r.d?'':(Math.abs(e)/r.d*100).toFixed(4),...(hasL?[r.level?.toFixed(4)??'']:[]),...(hasT?[r.trend?.toFixed(4)??'']:[]),...(hasMean?[r.mean?.toFixed(4)??'']:[]),...(hasSD?[r.sd?.toFixed(4)??'']:[])].join(',');});
   const blob=new Blob(['﻿'+[head.join(','),...lines].join('\n')],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`NEXUS需求预测_${info.short}_第${game.day}天.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000);
  };
@@ -225,16 +239,16 @@ function Steps({game,dispatch}:Props){
   <div className="fc-table-head"><span>Σe、MAD、TS 从窗口第一期开始滚动累计。误差条：<i className="swatch warm"/>预测偏低　<i className="swatch cool"/>预测偏高</span><button className="secondary-button" onClick={exportCsv}><Download size={14}/>导出全部历史 CSV</button></div>
   <div className="fc-table steps"><table>
    <thead><tr className="group"><th colSpan={4}>数据</th><th colSpan={4}>误差</th>{nState>0&&<th colSpan={nState}>方法状态</th>}<th colSpan={3}>累计</th></tr>
-    <tr><th>运营日</th><th>星期</th><th>Dₜ</th><th>Fₜ</th><th className="ebar-h">eₜ = Dₜ − Fₜ</th><th>|eₜ|</th><th>eₜ²</th><th>APE</th>{hasL&&<th>Lₜ</th>}{hasT&&<th>Tₜ</th>}{hasS&&<th>Sₜ₋₇</th>}<th>Σe</th><th>MAD</th><th>TS</th></tr></thead>
+    <tr><th>运营日</th><th>星期</th><th>Dₜ</th><th>Fₜ</th><th className="ebar-h">eₜ = Dₜ − Fₜ</th><th>|eₜ|</th><th>eₜ²</th><th>APE</th>{hasL&&<th>Lₜ</th>}{hasT&&<th>Tₜ</th>}{hasMean&&<th>mₜ</th>}{hasSD&&<th>σₜ</th>}<th>Σe</th><th>MAD</th><th>TS</th></tr></thead>
    <tbody>{rows.map((r,i)=><FragmentRow key={r.t} divider={r.t===1&&i>0} span={11+nState}>
     <tr className={`${r.t>=1?'game':'hist'}${weekday(r.t)>=5?' weekend':''}`}>
      <td>{dayLabel(r.t)}</td><td>{WEEKDAYS[weekday(r.t)]}</td><td>{r.d}</td><td>{fmt(r.f)}</td>
      <td className="ebar">{r.e===null?'—':<span className="ebar-cell"><span className="ebar-track"><i className={r.e>0?'warm':'cool'} style={{width:`${Math.abs(r.e)/emax*50}%`,[r.e>0?'left':'right']:'50%'}}/></span><span className="ebar-num">{signed(r.e)}</span></span>}</td>
      <td>{r.e===null?'—':fmt(Math.abs(r.e))}</td><td>{r.e===null?'—':fmt(r.e*r.e,0)}</td><td>{r.e===null||!r.d?'—':fmt(Math.abs(r.e)/r.d*100)+'%'}</td>
-     {hasL&&<td>{fmt(r.level,2)}</td>}{hasT&&<td>{fmt(r.trend,3)}</td>}{hasS&&<td>{fmt(r.season,3)}</td>}
+     {hasL&&<td>{fmt(r.level,2)}</td>}{hasT&&<td>{fmt(r.trend,3)}</td>}{hasMean&&<td>{fmt(r.mean,2)}</td>}{hasSD&&<td>{fmt(r.sd,2)}</td>}
      <td>{signed(r.cum)}</td><td>{fmt(r.mad)}</td><td><span className={Math.abs(r.ts)>TS_LIMIT?'fc-badge warn':'fc-badge'}>{fmt(r.ts,2)}</span></td>
     </tr></FragmentRow>)}</tbody></table></div>
-  <p className="fc-note">“历史”是开局前预置的数据（第 −55 天到第 0 天），“第 n 天”是经营中已经结算的日子；今天的需求要点「下一天」结算后才会出现。周末行有浅色底纹。导出的 CSV 带全部历史与方法中间量，可在 Excel 里逐格复算。{hasS?' Sₜ₋₇ 是计算第 t 期时使用的季节指数（一周前更新的那个）。':''}</p>
+  <p className="fc-note">“历史”是开局前预置的数据（第 −55 天到第 0 天），“第 n 天”是经营中已经结算的日子；今天的需求要点「下一天」结算后才会出现。周末行有浅色底纹。导出的 CSV 带全部历史与方法中间量，可在 Excel 里逐格复算。{hasSD?' GP 的 mₜ 是结构均值（趋势 × 星期因子），σₜ 是含观测噪声的预测标准差。GP 使用固定 56 天滚动窗口；在平稳核下，各期一步预测的相对位置相同，因此窗口内 σₜ 基本相同，h 步区间才会随 h 变宽。':''}</p>
  </div>;
 }
 function FragmentRow({divider,span,children}:{divider:boolean;span:number;children:ReactNode}){
@@ -260,7 +274,7 @@ function Compare({game,dispatch}:Props){
     <span>{on?<span className="fc-inuse"><Check size={13}/>使用中</span>:<button className="secondary-button fc-small" onClick={()=>dispatch({type:'forecast',settings:{method:m.id}})}>使用</button>}</span>
    </div>})}
   </div>
-  <p className="fc-note">参数沿用你当前的设置：n = {game.forecast.n}，权重 {normWeights(game.forecast.weights).map(x=>x.toFixed(2)).join(' / ')}，α = {game.forecast.alpha}，β = {game.forecast.beta}，γ = {game.forecast.gamma}。偏差条向右（暖色）表示预测系统性偏低，向左（冷色）表示偏高。可以讨论：哪种方法偏差接近 0？需求冲击后谁的 TS 最先报警、又最先恢复？排名第一只代表过去 4 周，不保证未来。</p>
+  <p className="fc-note">参数沿用你当前的设置：{game.forecast.method==='gp'?<>GP 核 = {game.forecast.gpKernel==='rbf_periodic'?'RBF + 周期':'RBF'}，ℓ = {game.forecast.ell} 天，σ_f² = {game.forecast.sf2}{game.forecast.gpKernel==='rbf_periodic'?`，σ_p² = ${game.forecast.sp2}`:''}，σ_n² = {game.forecast.sn2}。</>:<>n = {game.forecast.n}，权重 {normWeights(game.forecast.weights).map(x=>x.toFixed(2)).join(' / ')}，α = {game.forecast.alpha}，β = {game.forecast.beta}。</>}偏差条向右（暖色）表示预测系统性偏低，向左（冷色）表示偏高。可以讨论：哪种方法偏差接近 0？需求冲击后谁的 TS 最先报警、又最先恢复？排名第一只代表过去 4 周，不保证未来。</p>
  </div>;
 }
 
@@ -286,7 +300,7 @@ function Order({game,dispatch}:Props){
    <div className="fc-stack">{parts.map(p=><i key={p.c} className={p.c} style={{width:`${p.v/r.target*100}%`}} title={`${p.k}：${fmt(p.v)}`}/>)}</div>
    <div className="fc-stack-legend">{parts.map(p=><span key={p.c}><i className={p.c}/>{p.k}<b>{fmt(p.v,0)}</b></span>)}</div>
    <div className="fc-math small">S = {r.contracted} + {fmt(r.peak)} + {r.z} × {fmt(r.sigma)} = <b>{r.target.toLocaleString()}</b></div>
-   <p className="fc-note tight">今天下单的 GPU 第 {game.day+r.L} 天到货（提前期 L = {r.L} 天），容量要覆盖第 {r.path[0].day}{r.path.length>1?` – ${r.path.at(-1)!.day}`:''} 天，取其中“合同 + 预测”最大的第 {r.peakDay} 天。{r.expiring>0?` 有 ${r.expiring} GPU 的合同会在到货前到期，已扣除。`:''}σ 是{r.sigmaSource==='backtest'?`回测得到的 ${r.h0} 步预测误差均方根`:`一步误差 × √${r.h0}（回测样本不足时的教材近似）`}。</p>
+   <p className="fc-note tight">今天下单的 GPU 第 {game.day+r.L} 天到货（提前期 L = {r.L} 天），容量要覆盖第 {r.path[0].day}{r.path.length>1?` – ${r.path.at(-1)!.day}`:''} 天，取其中“合同 + 预测”最大的第 {r.peakDay} 天。{r.expiring>0?` 有 ${r.expiring} GPU 的合同会在到货前到期，已扣除。`:''}σ 是 {r.sigmaSource==='gp'?`GP 在交货窗口内的最大预测标准差（含观测噪声 σₙ² = ${game.forecast.sn2}）`:r.sigmaSource==='backtest'?`回测得到的 ${r.h0} 步预测误差均方根`:`一步误差 × √${r.h0}（回测样本不足时的教材近似）`}。</p>
   </div>
   <h3 className="section-title">各系统：现有 + 在途 vs 目标 <span>{need.length?`缺口在 ${need.map(x=>x.name.replace(/(计算机柜组|模块|阵列|单元|高速)/g,'').trim()).join('、')}`:'全部达标'}</span></h3>
   <div className="fc-cap">{r.items.map(x=><div key={x.id} className={x.gap?'fc-cap-row short':'fc-cap-row'}>

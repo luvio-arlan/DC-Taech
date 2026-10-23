@@ -142,7 +142,9 @@ export function recommendation(g:Game,settings:ForecastSettings=g.forecast){
  const top=path.reduce((best,x)=>x.contracted+x.f>best.contracted+best.f?x:best,path[0]),peak=top.f,contracted=top.contracted;
  const expiring=metrics(g).demand-activeOn(path[0].day);
  const one=horizonRmse(v.fit,1,v.from),hs=horizonRmse(v.fit,h0,v.from);
- const sigma=hs??(one!==null?one*Math.sqrt(h0):0),sigmaSource=hs!==null?'backtest':'sqrt';
+ const gpSd=v.fit.sdAhead?Math.max(0,...path.map(p=>v.fit.sdAhead!(v.N-1,p.h)??0)):null;
+ const sigma=gpSd!==null&&gpSd>0?gpSd:(hs??(one!==null?one*Math.sqrt(h0):0));
+ const sigmaSource=gpSd!==null&&gpSd>0?'gp':hs!==null?'backtest':'sqrt';
  const safety=s.z*sigma,target=Math.ceil(contracted+peak+safety);
  const items=CATALOG.map(x=>{const per=x.id==='power'?GPU_PER_MW:1,stock=x.id==='compute'?g.gpu:g[x.id];
   const have=Math.floor(stock*per),pipeline=Math.floor(g.orders.filter(o=>o.item===x.id).length*x.amount*per),lot=Math.floor(x.amount*per);

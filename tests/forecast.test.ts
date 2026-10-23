@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DEFAULT_FORECAST,MARKET,demandAt,errorStats,fit,observed,sanitize,staticInit,table,windowStart,horizonRmse} from '../lib/forecast.ts';
+import {DEFAULT_FORECAST,MARKET,cholesky,demandAt,errorStats,fit,gpKernel,gpPosterior,horizonRmse,intervalZ,observed,predictiveSd,rbfKernel,sanitize,staticInit,table,windowStart} from '../lib/forecast.ts';
 import type {ForecastSettings,Obs} from '../lib/forecast.ts';
 import {act,initialGame,metrics,recommendation,COSTS,CATALOG} from '../lib/game.ts';
 import {normInv,normCdf} from '../lib/forecast.ts';
@@ -37,12 +37,73 @@ test('Holt：完全线性的需求可以被精确预测，h 步预测 = L + hT',
  near(f.ahead(19,3),5+2*23,1e-6);
 });
 
-test('Holt-Winters：初始季节指数合计为 7，在游戏数据上明显优于无季节的方法',()=>{
- const s=observed(14),from=windowStart(s.length);
- const hw=fit(s,cfg({method:'hw'}));
- const first7=hw.rows.slice(0,7).map(r=>r.season!);near(first7.reduce((a,b)=>a+b,0),7,1e-9);
- const mad=(m:ForecastSettings['method'])=>errorStats(fit(s,cfg({method:m})).rows,from).mad;
- assert.ok(mad('hw')<mad('holt')*.6&&mad('hw')<mad('ses')*.6&&mad('hw')<mad('sma')*.6);
+test('高斯过程：RBF 核矩阵与授课讲义的手算值一致',()=>{
+ near(rbfKernel(0,1,.5),Math.exp(-2),1e-12);near(rbfKernel(0,2,.5),Math.exp(-8),1e-12);
+ near(gpKernel(0,1,{ell:.5,sf2:1,sn2:0}),Math.exp(-2),1e-12);
+ near(gpKernel(0,1,{ell:1,sf2:1,sn2:0}),Math.exp(-.5),1e-12);
+ near(gpKernel(0,2,{ell:1,sf2:1,sn2:0}),Math.exp(-2),1e-12);
+ near(gpKernel(0,1,{ell:2,sf2:1,sn2:0}),Math.exp(-1/8),1e-12);
+ near(gpKernel(0,2,{ell:2,sf2:1,sn2:0}),Math.exp(-.5),1e-12);
+ // 周期核：dx = 7 时与 dx = 0 相同；半周期处相关性最低
+ near(gpKernel(0,7,{ell:1,sf2:1,sn2:0,sp2:2}),2,1e-9);
+ assert.ok(gpKernel(0,3.5,{ell:1,sf2:1,sn2:0,sp2:2})<gpKernel(0,0,{ell:1,sf2:1,sn2:0,sp2:2}));
+ const L=cholesky([[4,2],[2,3]])!;assert.ok(L);near(L[0][0],2);near(L[1][1],Math.sqrt(2));near(L[1][0],1);
+});
+
+test('高斯过程：一个观测点的后验均值、潜在方差与观测方差与讲义一致',()=>{
+ const p={ell:1,sf2:1,sn2:.1};
+ const at0=gpPosterior([0],[1],[0],p)!;
+ near(at0.mean[0],.9090909090909091,1e-6);near(at0.latentVar[0],.09090909090909091,1e-6);near(at0.obsVar[0],.19090909090909092,1e-6);
+ const at1=gpPosterior([0],[1],[1],p)!;
+ near(at1.mean[0],.551391486,1e-6);near(at1.latentVar[0],.665564478,1e-6);near(at1.obsVar[0],.765564478,1e-6);
+ // 噪声趋于 0：观测点的后验均值趋于观测值，潜在方差趋于 0
+ const clean=gpPosterior([0],[1],[0],{ell:1,sf2:1,sn2:1e-6})!;
+ near(clean.mean[0],1,1e-5);near(clean.latentVar[0],0,1e-5);
+ // 边际对数似然：log p(y) = -y²/(2s) - ½log s - ½log(2π)，s = 1.1
+ const s=1.1,expected=-.5/s-.5*Math.log(s)-.5*Math.log(2*Math.PI);
+ near(at0.logLik,expected,1e-5);
+});
+
+test('高斯过程：多点后验与直接矩阵求逆一致',()=>{
+ const p={ell:1,sf2:1,sn2:.2};
+ const x=[0,1],y=[1,2],xs=[.5];
+ const k11=1.2,k12=Math.exp(-.5),det=k11*k11-k12*k12;
+ const alpha=[(k11*y[0]-k12*y[1])/det,(-k12*y[0]+k11*y[1])/det];
+ const k=Math.exp(-.125);
+ const mu=k*(alpha[0]+alpha[1]);
+ const mvar=(k11*2-2*k12)/(det),latent=1-k*k*mvar;
+ const got=gpPosterior(x,y,xs,p)!;
+ near(got.mean[0],mu,1e-7);near(got.latentVar[0],latent,1e-7);near(got.obsVar[0],latent+.2,1e-7);
+});
+
+test('高斯过程：观测增加时同一位置的后验方差不会增大',()=>{
+ const p={ell:2,sf2:2,sn2:.05};
+ const xs=[9];
+ const few=gpPosterior([0,1,2,3,4,5],[1,1.2,1.1,1.4,1.3,1.5],xs,p)!;
+ const many=gpPosterior([0,1,2,3,4,5,6,7,8],[1,1.2,1.1,1.4,1.3,1.5,1.55,1.6,1.58],xs,p)!;
+ assert.ok(many.latentVar[0]<few.latentVar[0]);
+ assert.ok(many.obsVar[0]>many.latentVar[0]);
+});
+
+test('高斯过程：趋势数据上的点预测接近线性趋势，且返回正方差',()=>{
+ const d=S(Array.from({length:21},(_,i)=>100+2*(i+1)));
+ const f=fit(d,cfg({method:'gp',gpKernel:'rbf',ell:5,sf2:10,sp2:0,sn2:1}));
+ for(let i=2;i<f.rows.length;i++)near(f.rows[i].f,f.rows[i].d,1e-6);
+ assert.ok(f.gp&&f.gp.last.obsVar>0&&f.gp.logLik!==null);
+ assert.ok(f.ahead(20,3)!>0);
+});
+
+test('高斯过程：在游戏数据上误差低于朴素法与 SMA，且区间/安全量使用 GP 标准差',()=>{
+ const s=observed(21),from=windowStart(s.length);
+ const mad=(method:ForecastSettings['method'])=>errorStats(fit(s,cfg({method})).rows,from).mad;
+ const gp=fit(s,cfg({method:'gp'}));
+ const gpMad=errorStats(gp.rows,from).mad;
+ assert.ok(gpMad<mad('naive'),`GP ${gpMad} < naive ${mad('naive')}`);
+ assert.ok(gpMad<mad('sma'),`GP ${gpMad} < SMA ${mad('sma')}`);
+ const sd=predictiveSd(gp,gp.rows.length-1,5);assert.ok(sd!==null&&sd>0);
+ near(intervalZ(1.645),1.959964,2e-4);near(intervalZ(0),0,1e-12);
+ const g=act(initialGame(),{type:'forecast',settings:{method:'gp',z:1.96}}).game;
+ const rec=recommendation(g);assert.equal(rec.sigmaSource,'gp');assert.ok(rec.sigma>0);
 });
 
 test('误差指标：e = D − F，MAD、MSE、MAPE、跟踪信号',()=>{
@@ -53,14 +114,17 @@ test('误差指标：e = D − F，MAD、MSE、MAPE、跟踪信号',()=>{
 });
 
 test('冲击之后跟踪信号报警（|TS| > 4）',()=>{
- const s=observed(21),f=fit(s,cfg({method:'hw'}));
+ const s=observed(21),f=fit(s,cfg({method:'ses'}));
  assert.ok(Math.abs(errorStats(f.rows,windowStart(s.length)).ts)>4);
 });
 
-test('参数会被限制在合理范围',()=>{
- const s=sanitize({method:'xx' as never,n:99,alpha:5,beta:-1,weights:[-1,0],z:9,review:0});
+test('参数会被限制在合理范围；已删除的 Holt-Winters 存档会回退到默认方法',()=>{
+ const old=sanitize({method:'hw' as never});
+ assert.equal(old.method,DEFAULT_FORECAST.method);
+ const s=sanitize({method:'xx' as never,n:99,alpha:5,beta:-1,weights:[-1,0],z:9,review:0,ell:99,sf2:-1,sp2:9999,sn2:0,gpKernel:'bad' as never});
  assert.equal(s.method,DEFAULT_FORECAST.method);assert.equal(s.n,28);assert.equal(s.alpha,1);assert.equal(s.beta,.01);
  assert.deepEqual(s.weights,DEFAULT_FORECAST.weights);assert.equal(s.z,3.5);assert.equal(s.review,1);
+ assert.equal(s.ell,30);assert.equal(s.sf2,10);assert.equal(s.sp2,5000);assert.equal(s.sn2,1);assert.equal(s.gpKernel,'rbf_periodic');
 });
 
 test('结算：合同优先，剩余算力服务按需市场，账单与现金对得上',()=>{
@@ -75,8 +139,8 @@ test('结算：合同优先，剩余算力服务按需市场，账单与现金�
 });
 
 test('选择预测方法会保存到存档，并影响订货建议',()=>{
- const g=act(initialGame(),{type:'forecast',settings:{method:'hw',z:1.96}}).game;
- assert.equal(g.forecast.method,'hw');assert.equal(g.forecast.z,1.96);
+ const g=act(initialGame(),{type:'forecast',settings:{method:'gp',z:1.96}}).game;
+ assert.equal(g.forecast.method,'gp');assert.equal(g.forecast.z,1.96);
  const rec=recommendation(g);
  assert.equal(rec.target,Math.ceil(rec.contracted+rec.peak+rec.z*rec.sigma));
  const gpu=rec.items.find(x=>x.id==='compute')!;assert.equal(gpu.lots,Math.ceil(Math.max(0,rec.target-256)/64));
@@ -101,7 +165,7 @@ test('胜负判定不受所选预测方法影响',()=>{
  let g=initialGame();g.gpu=g.optical=g.storage=g.cooling=2048;g.progress=100;g.power=20;
  for(const c of ['orion','helix'])g=act(g,{type:'sign',client:c}).game;
  const a=act(act(g,{type:'forecast',settings:{method:'naive'}}).game,{type:'next'}).game;
- const b=act(act(g,{type:'forecast',settings:{method:'hw'}}).game,{type:'next'}).game;
+ const b=act(act(g,{type:'forecast',settings:{method:'gp'}}).game,{type:'next'}).game;
  assert.equal(a.won,b.won);
 });
 

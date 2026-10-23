@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import * as THREE from 'three';
 import {Game,Layer,Place,Panel,forecastView,metrics,money} from '@/lib/game';
-import {horizonRmse,errorStats,methodInfo} from '@/lib/forecast';
+import {errorStats,intervalZ,methodInfo,predictiveSd} from '@/lib/forecast';
 
 type Props={game:Game;place:Place;layer:Layer;blocked:boolean;onOpen:(panel:Panel)=>void;onReady:()=>void;onPlace:(p:Place)=>void};
 export default function Scene({game,place,layer,blocked,onOpen,onReady,onPlace}:Props){
@@ -183,7 +183,7 @@ export default function Scene({game,place,layer,blocked,onOpen,onReady,onPlace}:
   const forecastDraw=()=>{
    const tex=screenTextures[2];if(!tex)return;const canvas=tex.image as HTMLCanvasElement,c=canvas.getContext('2d')!,g=refs.current.game;
    const v=forecastView(g),info=methodInfo(g.forecast.method),e=errorStats(v.fit.rows,v.from),alarm=Math.abs(e.ts)>4;
-   const past=v.series.slice(-21),fut=Array.from({length:7},(_,k)=>{const h=k+1,f=Math.max(0,v.fit.ahead(v.N-1,h)??0),sd=horizonRmse(v.fit,h,v.from)??0;return {t:g.day+k,f,b:g.forecast.z*sd};});
+   const past=v.series.slice(-21),fut=Array.from({length:7},(_,k)=>{const h=k+1,f=Math.max(0,v.fit.ahead(v.N-1,h)??0),sd=predictiveSd(v.fit,v.N-1,h,v.from)??0;return {t:g.day+k,f,b:intervalZ(g.forecast.z)*sd};});
    c.fillStyle='#0f2220';c.fillRect(0,0,1024,576);
    c.fillStyle='#d9e3d7';c.font='600 30px sans-serif';c.textAlign='left';c.fillText('NEXUS',44,56);c.fillStyle='#7f9b8f';c.font='500 26px sans-serif';c.textAlign='right';c.fillText('需求预测 · '+info.short,980,58);
    c.textAlign='left';c.fillStyle='#8fa98f';c.font='28px sans-serif';c.fillText('今日预测 · 第 '+g.day+' 天',44,120);

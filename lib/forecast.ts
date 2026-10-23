@@ -1,14 +1,18 @@
 // 需求预测教学模块
 // 1. 按需算力市场的需求生成（趋势 + 周季节 + 噪声 + 一次需求冲击，固定随机种子，全班数据一致）
-// 2. 六种经典时间序列预测方法：朴素法、简单移动平均、加权移动平均、一次指数平滑、Holt、Holt-Winters
+// 2. 六种预测方法：朴素法、简单移动平均、加权移动平均、一次指数平滑、Holt、高斯过程回归（GP）
 // 3. 误差指标：MAD、MSE、RMSE、MAPE、偏差、跟踪信号 TS
-// 4. h 步预测误差（用于安全量）
+// 4. h 步预测误差与 GP 后验预测标准差（用于安全量）
 // 本文件不依赖游戏状态，可单独测试、单独拿去做课堂练习。
 
-export type Method = 'naive' | 'sma' | 'wma' | 'ses' | 'holt' | 'hw';
-export type Param = 'n' | 'weights' | 'alpha' | 'beta' | 'gamma';
-export interface ForecastSettings {method:Method;n:number;weights:number[];alpha:number;beta:number;gamma:number;z:number;review:number}
-export const DEFAULT_FORECAST:ForecastSettings = {method:'ses',n:7,weights:[0.5,0.3,0.2],alpha:0.3,beta:0.1,gamma:0.2,z:1.645,review:1};
+export type Method = 'naive' | 'sma' | 'wma' | 'ses' | 'holt' | 'gp';
+export type Param = 'n' | 'weights' | 'alpha' | 'beta' | 'gp';
+export type GPKernel = 'rbf' | 'rbf_periodic';
+export interface ForecastSettings {method:Method;n:number;weights:number[];alpha:number;beta:number;gpKernel:GPKernel;ell:number;sf2:number;sp2:number;sn2:number;z:number;review:number}
+export const DEFAULT_FORECAST:ForecastSettings = {method:'ses',n:7,weights:[0.5,0.3,0.2],alpha:0.3,beta:0.1,gpKernel:'rbf_periodic',ell:3,sf2:600,sp2:300,sn2:50,z:1.645,review:1};
+const GP_KERNELS:GPKernel[]=['rbf','rbf_periodic'];
+/** GP 训练窗口、周期核与数值稳定的教学常量 */
+export const GP = {meanWindow:56,period:7,periodEll:1.5,maxHorizon:24,jitter:1e-8};
 
 // 市场参数：教师可以改这里，生成不同的教学情景
 export const MARKET = {
@@ -47,17 +51,21 @@ export const METHODS:{id:Method;name:string;short:string;params:Param[];formula:
  {id:'wma',name:'加权移动平均',short:'WMA',params:['weights'],formula:['Fₜ₊₁ = w₁Dₜ + w₂Dₜ₋₁ + … + wₙDₜ₋ₙ₊₁','Σwᵢ = 1，越近的数据权重越大'],idea:'给近期数据更大的权重，比 SMA 反应快。权重合计不为 1 时自动按比例归一。'},
  {id:'ses',name:'一次指数平滑',short:'SES',params:['alpha'],formula:['Fₜ₊₁ = αDₜ + (1 − α)Fₜ'],idea:'新预测 = 旧预测 + α × 上期误差。α 越大反应越快、噪声也越大。没有趋势项，面对增长会持续低估。'},
  {id:'holt',name:'Holt 双参数指数平滑',short:'Holt',params:['alpha','beta'],formula:['Lₜ = αDₜ + (1 − α)(Lₜ₋₁ + Tₜ₋₁)','Tₜ = β(Lₜ − Lₜ₋₁) + (1 − β)Tₜ₋₁','Fₜ₊ₕ = Lₜ + h·Tₜ'],idea:'分别平滑水平 L 和趋势 T，能跟上增长，但没有季节项，周末会系统性高估、工作日低估。'},
- {id:'hw',name:'Holt-Winters 三次指数平滑（乘法季节）',short:'H-W',params:['alpha','beta','gamma'],formula:['Lₜ = α(Dₜ / Sₜ₋ₘ) + (1 − α)(Lₜ₋₁ + Tₜ₋₁)','Tₜ = β(Lₜ − Lₜ₋₁) + (1 − β)Tₜ₋₁','Sₜ = γ(Dₜ / Lₜ) + (1 − γ)Sₜ₋ₘ','Fₜ₊ₕ = (Lₜ + h·Tₜ) · Sₜ₊ₕ₋ₘ，m = 7'],idea:'在 Holt 基础上加入季节指数 S，同时处理趋势和周季节。参数多，初始化也更讲究。'},
+ {id:'gp',name:'高斯过程回归（GP）',short:'GP',params:['gp'],formula:['yₜ = m(xₜ) + f(xₜ) + εₜ，εₜ ~ N(0, σₙ²)','f ~ GP(0, k)，k = k_RBF（可选 + k_周期）','μ* = m(x*) + k*ᵀ(K + σₙ²I)⁻¹(y − m)','v* = k** − k*ᵀ(K + σₙ²I)⁻¹k*','Var(y*) = v* + σₙ²'],idea:'用核函数描述不同日期需求的相关性，返回完整的高斯预测分布：后验均值给出点预测，后验方差给出预测区间。均值函数包含线性趋势与周季节，GP 只拟合剩余相关结构；这是本讲的概率预测方法。'},
 ];
 export const methodInfo=(id:Method)=>METHODS.find(x=>x.id===id)!;
 
 const clamp=(x:number,lo:number,hi:number,fb:number)=>Number.isFinite(x)?Math.min(hi,Math.max(lo,x)):fb;
-export function sanitize(s:Partial<ForecastSettings>,base:ForecastSettings=DEFAULT_FORECAST):ForecastSettings{
- const m=METHODS.some(x=>x.id===s.method)?s.method!:base.method;
- const w=Array.isArray(s.weights)?s.weights.map(Number).filter(x=>Number.isFinite(x)&&x>=0).slice(0,10):base.weights;
- return {method:m,n:Math.round(clamp(Number(s.n??base.n),2,28,base.n)),weights:w.length&&w.reduce((a,b)=>a+b,0)>0?w:base.weights,
-  alpha:clamp(Number(s.alpha??base.alpha),.01,1,base.alpha),beta:clamp(Number(s.beta??base.beta),.01,1,base.beta),gamma:clamp(Number(s.gamma??base.gamma),.01,1,base.gamma),
-  z:clamp(Number(s.z??base.z),0,3.5,base.z),review:Math.round(clamp(Number(s.review??base.review),1,14,base.review))};
+export function sanitize(s:Partial<ForecastSettings>={},base:ForecastSettings=DEFAULT_FORECAST):ForecastSettings{
+ const b={...DEFAULT_FORECAST,...base};
+ const m=METHODS.some(x=>x.id===s.method)?s.method!:(METHODS.some(x=>x.id===b.method)?b.method:DEFAULT_FORECAST.method);
+ const w=Array.isArray(s.weights)?s.weights.map(Number).filter(x=>Number.isFinite(x)&&x>=0).slice(0,10):b.weights;
+ const gpKernel=GP_KERNELS.includes(s.gpKernel as GPKernel)?s.gpKernel as GPKernel:(GP_KERNELS.includes(b.gpKernel)?b.gpKernel:'rbf_periodic');
+ return {method:m,n:Math.round(clamp(Number(s.n??b.n),2,28,b.n)),weights:w.length&&w.reduce((a,c)=>a+c,0)>0?w:b.weights,
+  alpha:clamp(Number(s.alpha??b.alpha),.01,1,b.alpha),beta:clamp(Number(s.beta??b.beta),.01,1,b.beta),
+  gpKernel,ell:clamp(Number(s.ell??b.ell),.5,30,b.ell),sf2:clamp(Number(s.sf2??b.sf2),10,5000,b.sf2),
+  sp2:clamp(Number(s.sp2??b.sp2),0,5000,b.sp2),sn2:clamp(Number(s.sn2??b.sn2),1,1000,b.sn2),
+  z:clamp(Number(s.z??b.z),0,3.5,b.z),review:Math.round(clamp(Number(s.review??b.review),1,14,b.review))};
 }
 export const normWeights=(w:number[])=>{const s=w.reduce((a,b)=>a+b,0);return w.map(x=>x/s);};
 
@@ -81,8 +89,125 @@ export function staticInit(d:number[],m=MARKET.season,K=4*MARKET.season){
  const raw=ratio.map(r=>r.length?r.reduce((x,y)=>x+y,0)/r.length:1),sum=raw.reduce((x,y)=>x+y,0);
  return {a,b,k,S0:raw.map(x=>x*m/sum),cma:xs.length};
 }
-export interface Row {t:number;d:number;f:number|null;level?:number;trend?:number;season?:number}
-export interface Fit {rows:Row[];ahead:(i:number,h:number)=>number|null;init:string;settings:ForecastSettings}
+export interface Row {t:number;d:number;f:number|null;level?:number;trend?:number;mean?:number;sd?:number}
+export interface Fit {rows:Row[];ahead:(i:number,h:number)=>number|null;init:string;settings:ForecastSettings;sdAhead?:(i:number,h:number)=>number|null;gp?:{kernel:GPKernel;ell:number;sf2:number;sp2:number;sn2:number;meanWindow:number;logLik:number|null;last:{x:number;m:number;mean:number;latentVar:number;obsVar:number}}}
+
+/* ---------- 高斯过程回归：核矩阵、Cholesky、条件高斯 ---------- */
+export interface GPParams {ell:number;sf2:number;sn2:number;sp2?:number;ellP?:number;period?:number}
+export interface GPPredictive {mean:number[];latentVar:number[];obsVar:number[];logLik:number}
+
+/** RBF（平方指数）核：k(x,x′) = σ_f² exp(−(x−x′)² / (2ℓ²)) */
+export function rbfKernel(a:number,b:number,ell:number,sf2=1){const dx=a-b;return sf2*Math.exp(-(dx*dx)/(2*ell*ell));}
+/** RBF + 周期核；周期核周期默认 7 天，长度尺度默认 1.5 天 */
+export function gpKernel(a:number,b:number,p:GPParams){
+ const dx=a-b,ellP=p.ellP??GP.periodEll,period=p.period??GP.period,sp2=p.sp2??0;
+ let k=rbfKernel(a,b,p.ell,p.sf2);
+ if(sp2>0){const s=Math.sin(Math.PI*Math.abs(dx)/period);k+=sp2*Math.exp(-2*s*s/(ellP*ellP));}
+ return k;
+}
+/** Cholesky 分解 A = L Lᵀ；非正定返回 null */
+export function cholesky(A:number[][]){
+ const n=A.length,L:number[][]=Array.from({length:n},()=>Array(n).fill(0));
+ for(let i=0;i<n;i++)for(let j=0;j<=i;j++){
+  let sum=A[i][j];for(let k=0;k<j;k++)sum-=L[i][k]*L[j][k];
+  if(i===j){if(!(sum>0)||!Number.isFinite(sum))return null;L[i][j]=Math.sqrt(sum);}
+  else L[i][j]=sum/L[j][j];
+ }
+ return L;
+}
+const dot=(a:number[],b:number[])=>{let s=0;for(let i=0;i<a.length;i++)s+=a[i]*b[i];return s;};
+const solveLower=(L:number[][],b:number[])=>{const n=L.length,y=Array(n).fill(0);for(let i=0;i<n;i++){let s=b[i];for(let k=0;k<i;k++)s-=L[i][k]*y[k];y[i]=s/L[i][i];}return y;};
+const solveUpper=(L:number[][],b:number[])=>{const n=L.length,x=Array(n).fill(0);for(let i=n-1;i>=0;i--){let s=b[i];for(let k=i+1;k<n;k++)s-=L[k][i]*x[k];x[i]=s/L[i][i];}return x;};
+const solveCholesky=(L:number[][],b:number[])=>solveUpper(L,solveLower(L,b));
+/**
+ * 零均值 GP 后验。输入 x/y 是训练点，xs 是预测点；
+ * 返回后验均值、潜在函数方差、未来观测方差（潜在方差 + σₙ²）与边际对数似然。
+ * 计算使用 Cholesky 分解，不显式求逆。
+ */
+export function gpPosterior(x:number[],y:number[],xs:number[],p:GPParams):GPPredictive|null{
+ const n=x.length;
+ if(!n||n!==y.length||!xs.length)return null;
+ const ell=p.ell,sf2=p.sf2,sn2=Math.max(0,p.sn2),sp2=p.sp2??0;
+ if(!(ell>0)||!(sf2>0)||!x.every(Number.isFinite)||!y.every(Number.isFinite))return null;
+ const K:number[][]=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>gpKernel(x[i],x[j],p)));
+ const jitter=GP.jitter*(sf2+sp2+sn2);
+ for(let i=0;i<n;i++)K[i][i]+=sn2+jitter;
+ const L=cholesky(K);if(!L)return null;
+ const alpha=solveCholesky(L,y);
+ let logDet=0;for(let i=0;i<n;i++)logDet+=Math.log(L[i][i]);
+ const logLik=-0.5*dot(y,alpha)-logDet-0.5*n*Math.log(2*Math.PI);
+ const mean:number[]=[],latentVar:number[]=[],obsVar:number[]=[];
+ for(const t of xs){
+  const ks=x.map(xi=>gpKernel(xi,t,p));
+  const vv=solveCholesky(L,ks);
+  const mu=dot(ks,alpha);
+  const latent=Math.max(0,gpKernel(t,t,p)-dot(ks,vv));
+  mean.push(mu);latentVar.push(latent);obsVar.push(latent+sn2);
+ }
+ return {mean,latentVar,obsVar,logLik};
+}
+
+/* ---------- GP 的结构均值：线性趋势 × 星期因子 ---------- */
+interface MeanModel {a:number;b:number;s:number[]}
+function gpMeanModel(x:number[],y:number[]):MeanModel{
+ const n=x.length;
+ if(n<2)return {a:y[n-1]??0,b:0,s:Array(7).fill(1)};
+ const start=Math.max(0,n-GP.meanWindow),xs=x.slice(start),ys=y.slice(start);
+ let a=0,b=0;const s=Array(7).fill(1);
+ if(xs.length<14){const fit=olsXY(xs,ys);return {a:fit.a,b:fit.b,s};}
+ // 交替估计趋势与乘法星期因子：先去季节再回归，避免原始数据的周内高低把斜率拉偏。
+ for(let iter=0;iter<3;iter++){
+  const des=ys.map((v,k)=>v/s[weekday(xs[k])]);
+  const fit=olsXY(xs,des);a=fit.a;b=fit.b;
+  const sum=Array(7).fill(0),cnt=Array(7).fill(0);
+  for(let k=0;k<xs.length;k++){
+   const base=a+b*xs[k];
+   if(base>1e-6){const j=weekday(xs[k]);sum[j]+=ys[k]/base;cnt[j]++;}
+  }
+  // 向 1 收缩：样本越少的星期越接近“无季节差异”
+  for(let j=0;j<7;j++)if(cnt[j])s[j]=(sum[j]+1)/(cnt[j]+1);
+  const total=s.reduce((u,v)=>u+v,0);
+  if(total>0)for(let j=0;j<7;j++)s[j]=s[j]*7/total;
+ }
+ return {a,b,s};
+}
+const gpMeanAt=(x:number,m:MeanModel)=>Math.max(0,m.a+m.b*x)*m.s[weekday(x)];
+
+interface GPPoint {m:number;mean:number;latentVar:number;obsVar:number}
+function fitGP(series:Obs[],s:ForecastSettings):Fit{
+ const N=series.length,x=series.map(o=>o.t),d=series.map(o=>o.d);
+ const H=GP.maxHorizon,sp2=s.gpKernel==='rbf_periodic'?s.sp2:0;
+ const params:GPParams={ell:s.ell,sf2:s.sf2,sn2:s.sn2,sp2,ellP:GP.periodEll,period:GP.period};
+ const predictIndex=(i:number,h:number):GPPoint|null=>{
+  if(h<1||!Number.isFinite(h))return null;
+  const start=Math.max(0,i-GP.meanWindow+1),xt=x.slice(start,i+1),yt=d.slice(start,i+1);
+  if(!xt.length)return null;
+  const model=gpMeanModel(xt,yt),mTrain=xt.map(v=>gpMeanAt(v,model)),resid=yt.map((v,k)=>v-mTrain[k]);
+  const xs=[x[i]+h],gp=gpPosterior(xt,resid,xs,params);
+  if(!gp){const m=gpMeanAt(xs[0],model),v=s.sf2+sp2;return {m,mean:m,latentVar:v,obsVar:v+s.sn2};}
+  return {m:gpMeanAt(xs[0],model),mean:gpMeanAt(xs[0],model)+gp.mean[0],latentVar:gp.latentVar[0],obsVar:gp.obsVar[0]};
+ };
+ const pred:GPPoint[][]=[];
+ let logLik:number|null=null;
+ for(let i=0;i<N;i++){
+  const start=Math.max(0,i-GP.meanWindow+1),xt=x.slice(start,i+1),yt=d.slice(start,i+1);
+  const model=gpMeanModel(xt,yt),mTrain=xt.map(v=>gpMeanAt(v,model)),resid=yt.map((v,k)=>v-mTrain[k]);
+  const xs=Array.from({length:H},(_,k)=>x[i]+k+1),gp=gpPosterior(xt,resid,xs,params);
+  if(gp){logLik=gp.logLik;pred.push(xs.map((xv,k)=>({m:gpMeanAt(xv,model),mean:gpMeanAt(xv,model)+gp.mean[k],latentVar:gp.latentVar[k],obsVar:gp.obsVar[k]})));}
+  else{const v=s.sf2+sp2;pred.push(xs.map(xv=>({m:gpMeanAt(xv,model),mean:gpMeanAt(xv,model),latentVar:v,obsVar:v+s.sn2})));}
+ }
+ const get=(i:number,h:number)=>{const ii=Math.max(0,Math.min(N-1,Math.floor(i)));return h>=1&&h<=H?pred[ii][h-1]:predictIndex(ii,h);};
+ const rows:Row[]=series.map((o,i)=>{
+  const r:Row={t:o.t,d:o.d,f:i===0?null:pred[i-1][0].mean};
+  if(i>0){r.mean=pred[i-1][0].m;r.sd=Math.sqrt(Math.max(0,pred[i-1][0].obsVar));}
+  return r;
+ });
+ const last=pred[N-1][0],lastX=x[N-1]+1;
+ const kernelName=s.gpKernel==='rbf_periodic'?'RBF + 周期核（周期 7 天，ℓ_p=1.5）':'RBF 核';
+ const init=`均值函数 m(x) = (a + b·x) × 星期因子，用最近 ${Math.min(GP.meanWindow,N)} 天估计；核 = ${kernelName}；ℓ = ${s.ell}，σ_f² = ${s.sf2}${sp2>0?`，σ_p² = ${sp2}`:''}，σ_n² = ${s.sn2}。GP 只拟合去均值后的残差；mₜ 列是结构均值，σₜ 列是含观测噪声的预测标准差。`;
+ return {rows,ahead:(i,h)=>get(i,h)?.mean??null,init,settings:s,sdAhead:(i,h)=>{const q=get(i,h);return q?Math.sqrt(Math.max(0,q.obsVar)):null;},
+  gp:{kernel:s.gpKernel,ell:s.ell,sf2:s.sf2,sp2,sn2:s.sn2,meanWindow:GP.meanWindow,logLik,last:{x:lastX,m:last.m,mean:last.mean,latentVar:last.latentVar,obsVar:last.obsVar}}};
+}
 
 /**
  * 对整段序列做滚动预测。rows[i].f 是在观测到第 i−1 期后，对第 i 期做的一步预测；
@@ -90,21 +215,17 @@ export interface Fit {rows:Row[];ahead:(i:number,h:number)=>number|null;init:str
  */
 export function fit(series:Obs[],raw:ForecastSettings):Fit{
  const s=sanitize(raw),d=series.map(x=>x.d),N=d.length,m=MARKET.season;
- const level:number[]=[],trend:number[]=[],seas:number[]=[];
+ if(s.method==='gp')return fitGP(series,s);
+ const level:number[]=[],trend:number[]=[];
  let ahead:(i:number,h:number)=>number|null,init='',first:number|null=null;
  if(s.method==='naive'){ahead=i=>d[i];init='没有参数，也不需要初始化；第一期没有预测值。';}
  else if(s.method==='sma'){const n=s.n;ahead=i=>i+1>=n?d.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n:null;init=`凑齐前 ${n} 期数据后才开始预测。`;}
  else if(s.method==='wma'){const w=normWeights(s.weights),k=w.length;ahead=i=>i+1>=k?w.reduce((sum,wj,j)=>sum+wj*d[i-j],0):null;init=`归一后的权重（从最近一期起）：${w.map(x=>x.toFixed(3)).join('、')}；凑齐前 ${k} 期后开始预测。`;}
  else if(s.method==='ses'){for(let i=0;i<N;i++)level[i]=i===0?d[0]:s.alpha*d[i]+(1-s.alpha)*level[i-1];ahead=i=>level[i];init='初始预测 F₂ = D₁，即用第一期实际值作为起点。表中的 Lₜ 列就是 Fₜ₊₁。';}
- else if(s.method==='holt'){const {a,b,k}=staticInit(d,m);first=a+b;
+ else{const {a,b,k}=staticInit(d,m);first=a+b;
   for(let i=0;i<N;i++){const pL=i?level[i-1]:a,pT=i?trend[i-1]:b;level[i]=s.alpha*d[i]+(1-s.alpha)*(pL+pT);trend[i]=s.beta*(level[i]-pL)+(1-s.beta)*pT;}
   ahead=(i,h)=>level[i]+h*trend[i];init=`用前 ${k} 期做 ${m} 日中心移动平均去季节，再回归 D̄ = L₀ + T₀·t，得到 L₀ = ${a.toFixed(2)}，T₀ = ${b.toFixed(3)}（静态法）。`;}
- else{const {a,b,k,S0}=staticInit(d,m);
-  for(let j=0;j<m;j++)seas[j]=S0[j];first=(a+b)*seas[0];
-  for(let i=0;i<N;i++){const pL=i?level[i-1]:a,pT=i?trend[i-1]:b,si=seas[i];level[i]=s.alpha*d[i]/si+(1-s.alpha)*(pL+pT);trend[i]=s.beta*(level[i]-pL)+(1-s.beta)*pT;seas[i+m]=s.gamma*d[i]/level[i]+(1-s.gamma)*si;}
-  ahead=(i,h)=>{let k=i+h;while(k>i+m)k-=m;return (level[i]+h*trend[i])*seas[k];};
-  init=`静态法：用前 ${k} 期做 ${m} 日中心移动平均去季节，回归得到 L₀ = ${a.toFixed(2)}、T₀ = ${b.toFixed(3)}；初始季节指数 = 各星期“实际值 ÷ 回归值”的平均，再归一使合计为 ${m}：${S0.map((x,j)=>'周'+WEEKDAYS[weekday(series[j]?.t??j+1)]+' '+x.toFixed(3)).join('，')}。`;}
- const rows:Row[]=series.map((o,i)=>{const r:Row={t:o.t,d:o.d,f:i===0?first:ahead(i-1,1)};if(level[i]!==undefined)r.level=level[i];if(trend[i]!==undefined&&s.method!=='ses')r.trend=trend[i];if(s.method==='hw')r.season=seas[i];return r;});
+ const rows:Row[]=series.map((o,i)=>{const r:Row={t:o.t,d:o.d,f:i===0?first:ahead(i-1,1)};if(level[i]!==undefined)r.level=level[i];if(trend[i]!==undefined&&s.method!=='ses')r.trend=trend[i];return r;});
  return {rows,ahead,init,settings:s};
 }
 
@@ -128,6 +249,14 @@ export function horizonRmse(f:Fit,h:number,from=0){
  for(let i=0;i+h<N;i++){if(i+h<from)continue;const p=f.ahead(i,h);if(p===null)continue;const e=f.rows[i+h].d-p;sq+=e*e;n++;}
  return n>=5?Math.sqrt(sq/n):null;
 }
+/** 预测标准差：GP 用后验预测分布（含观测噪声），其他方法用回测的 h 步误差均方根 */
+export function predictiveSd(f:Fit,i:number,h:number,from=0){
+ const gp=f.sdAhead?.(i,h);
+ if(gp!==null&&gp!==undefined&&Number.isFinite(gp))return gp;
+ return horizonRmse(f,h,from);
+}
+/** 把“单侧服务水平”的 z 换算成“同一覆盖率的双侧预测区间”的 z（95% 服务 → 1.96） */
+export function intervalZ(z:number){if(!(z>0))return 0;return normInv((1+normCdf(z))/2);}
 /** 统计窗口起点（数组下标） */
 export const windowStart=(N:number)=>Math.max(0,N-MARKET.window);
 export const SERVICE_LEVELS=[{z:0,label:'50%（不留安全量）'},{z:1.282,label:'90%'},{z:1.645,label:'95%'},{z:1.96,label:'97.5%'},{z:2.326,label:'99%'}];
