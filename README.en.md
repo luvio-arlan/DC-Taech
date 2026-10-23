@@ -2,7 +2,7 @@
 
 **Run an AI datacenter from the CEO's desk, then walk inside the infrastructure that makes compute possible.**
 
-[Play in your browser](https://bjtu.echoxai.net/) · [阿里云部署](docs/ALIYUN.md) · [中文](README.md)
+[Play in your browser](http://120.26.147.100:8080/) · [阿里云部署](docs/ALIYUN.md) · [中文](README.md)
 
 ![CEO office](docs/images/01-ceo-office.png)
 

@@ -4,7 +4,7 @@
 
 **从 CEO 的办公桌出发，经营一座真正需要「光、电、存、芯、冷」协同工作的数据中心。**
 
-[在线试玩](https://bjtu.echoxai.net/) · [中文教程](docs/TUTORIAL.md) · [阿里云部署](docs/ALIYUN.md) · [教程文件](docs/videos/README.md) · [English](README.en.md)
+[在线试玩](http://120.26.147.100:8080/) · [中文教程](docs/TUTORIAL.md) · [阿里云部署](docs/ALIYUN.md) · [教程文件](docs/videos/README.md) · [English](README.en.md)
 
 ![NEXUS CEO 办公室](docs/images/01-ceo-office.png)
 

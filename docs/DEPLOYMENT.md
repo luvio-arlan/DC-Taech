@@ -112,7 +112,7 @@ Environment=HOST=127.0.0.1
 Environment=DATA_DIR=/var/lib/nexus
 Environment=TRUST_PROXY=1
 Environment=TEACHER_PASSWORD=bjtu888
-ExecStart=/usr/bin/node server/index.mjs
+ExecStart=/usr/bin/node server/index.mjs  # 以 `command -v node` 的实际路径为准
 Restart=always
 RestartSec=3
 NoNewPrivileges=true
@@ -143,11 +143,11 @@ server {
     location / {
         proxy_pass http://127.0.0.1:8787;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_set_header Connection "";
     }
 }
