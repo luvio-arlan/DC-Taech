@@ -4,6 +4,8 @@
 
 [Play in your browser](https://bjtu.echoxai.net/) · [Backup entry](http://120.26.147.100:8080/) · [阿里云部署](docs/ALIYUN.md) · [中文](README.md)
 
+> Use the full **https://** URL. Plain `http://` is intercepted by the Aliyun ICP block page; this is a domain-filing restriction, not a game issue.
+
 ![CEO office](docs/images/01-ceo-office.png)
 
 NEXUS is an open-source, first-person 3D management game for learning about AI infrastructure. Start with 256 GPUs, sign customers, procure equipment, expand your campus and manage cooling incidents. The current game interface is in Chinese.

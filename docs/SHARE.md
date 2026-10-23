@@ -6,7 +6,7 @@
 
 我们开源了 **NEXUS · 算力纪元**，一款可以直接在浏览器里玩的第一人称 3D 经营教学游戏。从 CEO 办公桌签下第一份算力合同，走进机房查看「光、电、存、芯、冷」，再把采购、施工和客户需求连接起来。
 
-- 在线试玩：https://bjtu.echoxai.net/ （学生用姓名 + 6 位学号注册；备用 http://120.26.147.100:8080/）
+- 在线试玩：https://bjtu.echoxai.net/ （务必使用 https://；学生用姓名 + 6 位学号注册；备用 http://120.26.147.100:8080/）
 - GitHub：https://github.com/luvio-arlan/DC-Taech
 - 教程与部署：https://github.com/luvio-arlan/DC-Taech/tree/main/docs
 

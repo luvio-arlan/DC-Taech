@@ -6,6 +6,8 @@
 
 [在线试玩](https://bjtu.echoxai.net/) · [备用入口](http://120.26.147.100:8080/) · [中文教程](docs/TUTORIAL.md) · [阿里云部署](docs/ALIYUN.md) · [教程文件](docs/videos/README.md) · [English](README.en.md)
 
+> 请使用完整的 **https://** 地址访问；`http://` 会被阿里云备案拦截页挡住，这是域名备案限制，不是游戏故障。
+
 ![NEXUS CEO 办公室](docs/images/01-ceo-office.png)
 
 [![MIT License](https://img.shields.io/badge/License-MIT-d5dcb2)](LICENSE)
